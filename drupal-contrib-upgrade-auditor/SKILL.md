@@ -55,6 +55,10 @@ Before committing to the full analysis, determine the scope of work.
 
 2. **Announce the scope** to the user before proceeding: state which phases will be run and why, so they can redirect if needed.
 
+3. **Create the report stub immediately.** As soon as the target file path is known, create `.copilot_workspace/contrib-upgrade-audit-{module_name}-{from_version}-to-{to_version}.md` using `create_file` with skeleton section headings and an `[IN PROGRESS]` status line at the top. Do not wait until analysis is complete. Append findings to each section incrementally as each phase completes. If `.copilot_workspace/` does not exist, create it first.
+
+   > **This step is mandatory.** If the stub file cannot be created, stop and report the error before proceeding with any analysis.
+
 ## Workflow Phase 1: Metadata & Dependency Alignment
 
 > Steps 1, 2, 3, and 4 are independent. Run them in parallel where the host environment supports it.
@@ -131,9 +135,13 @@ Identify "Ghost Dependencies"—custom code that uses the module but doesn't dec
 
 ## Output Requirements
 
-Save the report to: `.copilot_workspace/contrib-upgrade-audit-{module_name}-{from_version}-to-{to_version}.md`
+The report file is created at the end of Phase 0 (Step 3) and filled incrementally. The target path is:
 
-If `.copilot_workspace/` does not exist, create it. Do not overwrite an existing report — append a timestamp suffix (e.g., `-20260329`) if the target filename already exists.
+```
+.copilot_workspace/contrib-upgrade-audit-{module_name}-{from_version}-to-{to_version}.md
+```
+
+Do not overwrite an existing report — append a timestamp suffix (e.g., `-20260329`) if the target filename already exists.
 
 Always output an "Upgrade Impact Assessment" with the following sections:
 
@@ -227,3 +235,19 @@ Include the artifacts below so a developer agent can perform solution design and
 - The metadata findings from `*.info.yml` and `composer.json` that affect dependency declarations.
 - The test files identified in Phase 2 that form the regression validation suite.
 - Any open questions, assumptions, or unknowns that must be resolved before implementation.
+
+---
+
+## Completion Gates
+
+Do not conclude this skill's execution and do not respond to the user with a summary until **all** of the following conditions are verified:
+
+1. **Report file exists on disk and is non-empty.** Use `file_search` to confirm `.copilot_workspace/contrib-upgrade-audit-{module_name}-{from_version}-to-{to_version}.md` exists. If it does not, create it now from the findings gathered so far before proceeding to gate 2.
+
+2. **All required sections are populated.** The report must contain non-placeholder content in: Summary, Section 1 (Metadata Conflicts), Section 2 (Config Schema & Update Hook Risk), Section 3 (Code Impact), Section 4 (Ghost Dependencies), Section 5 (Test Coverage Inventory), Section 6 (Diff Evidence), Section 7 (Patch Overlay), and Section 8 (Developer Handoff References). A section may state "No findings" only if the corresponding analysis phase was actually run and produced no results.
+
+3. **Patch overlay is complete.** Every patch in `extra.patches` targeting this module has been assessed. No patch entry may be left as "Unknown" without a documented reason.
+
+4. **Test coverage inventory is explicit.** Either test files are listed, or the absence of tests is recorded as an explicit risk finding — not omitted.
+
+If any gate fails, complete the missing work before responding.

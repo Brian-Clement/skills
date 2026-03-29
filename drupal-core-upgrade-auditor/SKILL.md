@@ -59,6 +59,10 @@ Before any analysis, classify the upgrade and announce the planned scope.
 
 2. **Announce the scope** to the user: state which phases will run and why. Let the user redirect if the scope is wrong.
 
+3. **Create the report stub immediately.** As soon as the target file path is known, create `.copilot_workspace/core-upgrade-audit-{from_version}-to-{to_version}.md` using `create_file` with skeleton section headings and an `[IN PROGRESS]` status line at the top. Do not wait until analysis is complete. Append findings to each section incrementally as each phase completes. If `.copilot_workspace/` does not exist, create it first.
+
+   > **This step is mandatory.** If the stub file cannot be created, stop and report the error before proceeding with any analysis.
+
 ---
 
 ## Workflow Phase 1: Core Change Record & Release Notes Review
@@ -120,11 +124,22 @@ This phase determines which contrib modules are not compatible with the target C
    | Category | Meaning | Action |
    | :--- | :--- | :--- |
    | **Compatible** | Current version satisfies target Core constraint | No action needed |
-   | **Needs update** | A newer version exists that supports target Core | Run `drupal-contrib-upgrade-auditor` for this module |
-   | **No stable release** | No compatible release available yet | File or monitor issue; consider patch or fork |
-   | **Abandoned** | Project is unsupported; no path forward | Must find alternative or own the maintenance |
+   | **Needs update** | A newer version exists that supports target Core | Invoke `drupal-contrib-upgrade-auditor` for this module |
+   | **No stable release** | No compatible release available yet | Record explicit waiver in Section 3 of the report |
+   | **Abandoned** | Project is unsupported; no path forward | Record explicit waiver in Section 3 of the report |
 
-4. **Delegate to `drupal-contrib-upgrade-auditor`:** For every module in the **"Needs update"** category, invoke the `drupal-contrib-upgrade-auditor` skill with the installed version and the target compatible version. Record the resulting impact assessment file path in the handoff report.
+   > **A module may not be recorded as "Compatible" unless you have confirmed its `core_version_requirement` explicitly includes the target version.** When in doubt, treat as incompatible and investigate.
+
+4. **Apply the delegation threshold — no module may be silently skipped.** Every enabled contrib module that does not satisfy the target Core's `core_version_requirement` must be resolved by one of the following dispositions. There is no middle ground:
+
+   | Disposition | Condition | Required action |
+   | :--- | :--- | :--- |
+   | **Delegate** | A compatible release (stable, RC, or beta) exists | Invoke `drupal-contrib-upgrade-auditor`; record the report path in Section 3 |
+   | **Delegate + risk flag** | Only a dev or alpha release exists | Invoke `drupal-contrib-upgrade-auditor`; record report path and pre-stable risk in Section 3 |
+   | **Explicit waiver — No stable release** | No release supports the target Core version | Record in Section 3: module name, installed version, Drupal.org project URL, issue queue link, risk level, and recommended disposition (monitor / patch / fork) |
+   | **Explicit waiver — Abandoned** | Project is unsupported | Record in Section 3: module name, installed version, reason for abandonment determination, and recommended replacement or fork path |
+
+   Invoke `drupal-contrib-upgrade-auditor` for each delegated module before moving to Phase 4. Record every resulting report path in the core report as you go — do not batch them at the end.
 
 5. **Patch-on-Core check:** For every patch in `extra.patches` targeting `drupal/core` or `drupal/core-recommended`, determine:
    - Whether the patch is still needed in the target Core version (has the issue been resolved upstream?).
@@ -145,9 +160,13 @@ This phase determines which contrib modules are not compatible with the target C
 
 ## Output Requirements
 
-Save the report to: `.copilot_workspace/core-upgrade-audit-{from_version}-to-{to_version}.md`
+The report file is created at the end of Phase 0 (Step 3) and filled incrementally. The target path is:
 
-If `.copilot_workspace/` does not exist, create it. Do not overwrite an existing report — append a timestamp suffix (e.g., `-20260329`) if the target filename already exists.
+```
+.copilot_workspace/core-upgrade-audit-{from_version}-to-{to_version}.md
+```
+
+Do not overwrite an existing report — append a timestamp suffix (e.g., `-20260329`) if the target filename already exists.
 
 Always output a "Core Upgrade Impact Assessment" with the following sections:
 
@@ -242,3 +261,21 @@ Include all artifacts needed for a developer agent to begin implementation witho
 - All `extra.patches` entries for `drupal/core`, with patch file paths and issue queue URLs.
 - The config schema changes and update hooks that require manual attention before `drush updatedb` and `drush config:import`.
 - Any open questions, assumptions, or unknowns that must be resolved before implementation can begin.
+
+---
+
+## Completion Gates
+
+Do not conclude this skill's execution and do not respond to the user with a summary until **all** of the following conditions are verified:
+
+1. **Core report file exists on disk and is non-empty.** Use `file_search` to confirm `.copilot_workspace/core-upgrade-audit-{from_version}-to-{to_version}.md` exists. If it does not, create it now from the findings gathered so far before proceeding to gate 2.
+
+2. **Every "Needs update" module has a delegated contrib report on disk.** For each module in Section 3 with category "Needs update", verify that a corresponding `contrib-upgrade-audit-{module}-*.md` file exists in `.copilot_workspace/`. Any that are missing must have `drupal-contrib-upgrade-auditor` invoked for them now before this gate passes.
+
+3. **Every "No stable release" and "Abandoned" module has an explicit waiver entry in Section 3.** Each waiver must include: installed version, project or issue queue URL, risk level, and recommended disposition. A row with only a category label and no supporting detail does not satisfy this gate.
+
+4. **Section 6 (Recommended Upgrade Sequence) is populated** with at least one concrete step per phase that produced findings, in dependency order.
+
+5. **Section 7 (Developer Handoff References) lists every artifact path** produced during this run, including all `contrib-upgrade-audit-*.md` files.
+
+If any gate fails, complete the missing work before responding.
